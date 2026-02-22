@@ -56,13 +56,38 @@ fn get_page_links(node: &WebNode, client: &reqwest::blocking::Client) -> Vec<Str
         .filter_map(|n| n.attr("href"))
         .map(|n| n.to_string())
         .collect();
-    for link in &links {
-        // println!("{}", &link);
-    }
+    // for link in &links {
+    //     // println!("{}", &link);
+    // }
     return links;
 }
 
-fn link_is_html(link: &String) -> bool {}
+fn link_is_html(link: &String, client: &reqwest::blocking::Client) -> bool {
+    let mut our_headers = reqwest::header::HeaderMap::new();
+    our_headers.insert("user-agent", "'Mozilla/5.0".parse().unwrap());
+
+    let ret = client.head(link).headers(our_headers).send();
+    if ret.is_err() {
+        return false;
+    }
+    let res_headers = ret.unwrap().headers().clone();
+    // for ct in res_headers.get_all("Content-Type") {
+    //     if ct.to_str().contains("html")
+    //         || ct.to_str().contains("HTML")
+    //         || ct.to_str().contains("Html")
+    //     {
+    //         return true;
+    //     }
+    // }
+    // false
+    if let Some(ct) = res_headers.get("Content-type") {
+        let ct_str = ct.to_str().unwrap_or("");
+        //ToDo: consider supporting "text/plain"
+        return ct_str.contains("html") || ct_str.contains("HTML") || ct_str.contains("text/plain");
+    } else {
+        return false;
+    }
+}
 
 fn is_in_domain_list(url: &String, list: &Vec<&str>) -> bool {
     use reqwest::Error;
@@ -81,7 +106,7 @@ fn is_in_domain_list(url: &String, list: &Vec<&str>) -> bool {
         //     println!("Error, url cannot be parsed. {}", e);
         //     panic!()
         // }
-        Err(e) => false, // implicitly, the url is not in the list
+        Err(_) => false, // implicitly, the url is not in the list
     }
 }
 
@@ -172,8 +197,8 @@ fn main() {
         "cdn.cookielaw.org",
         "assets.adobedtm.com",
     ];
-    // let root_url = "https://www.talesofaredclayrambler.com/episodes?year=2017";
-    let root_url = "https://www.goodmorningandgoodnight.com/";
+    let root_url = "https://www.talesofaredclayrambler.com/episodes?year=2017";
+    // let root_url = "https://www.goodmorningandgoodnight.com/";
 
     let client = reqwest::blocking::Client::new();
 
@@ -195,6 +220,7 @@ fn main() {
             let page_links: Vec<String> = get_page_links(&node, &client)
                 .into_iter()
                 .filter(|link| !is_in_domain_list(link, &blacklist))
+                .filter(|link| link_is_html(link, &client))
                 .collect();
             for page in page_links {
                 let pg = WebNode::new(Uncrawled, &page);
