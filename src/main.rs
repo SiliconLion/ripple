@@ -13,101 +13,147 @@
 
 use std::ffi::CStr;
 use std::fmt::Debug;
+use std::future::Future;
+use std::time::Duration;
 
 use petgraph::dot::{Config, Dot};
 use petgraph::graphmap::DiGraphMap;
+use reqwest::blocking::Request;
 use reqwest::IntoUrl;
 use reqwest::Url;
 use select::document::Document;
 use select::predicate::Name;
 use select::predicate::Predicate;
 
-use owo_colors::OwoColorize;
+// use owo_colors::OwoColorize;
 
-//ToDo: Fix: Better error handling
-// promis i will tomorrow
-fn fetch_url(client: &reqwest::blocking::Client, url: &str) -> Result<String, reqwest::Error> {
+use tokio::sync::mpsc;
+use tokio::time::timeout;
+// use tokio_stream::StreamExt;
+
+async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<String, reqwest::Error> {
     let mut headers = reqwest::header::HeaderMap::new();
-
-    // headers.insert("authorization", "<authorization>".parse().unwrap());
+    //
+    //ToDo: is this unwrap okay?
     headers.insert("user-agent", "'Mozilla/5.0".parse().unwrap());
-
-    let mut res = client.get(url).headers(headers).send()?;
-    // println!("Status for {}: {}", url, res.status());
-
-    let mut body = res.text()?;
+    let res = client.get(url).headers(headers).send().await?;
+    let body = res.text().await?;
     Ok(body)
 }
 
-//links to webpages. ie, not scripts, images, resources, etc
-fn get_page_links(node: &WebNode, client: &reqwest::blocking::Client) -> Vec<String> {
-    //ToDo: Fix: dont just unwrap.
-    // I promise I will do better error handling in the morning
-    let response = fetch_url(client, &node.url_to_string());
+// //links to webpages. ie, not scripts, images, resources, etc
+// async fn get_page_body(node: &WebNode, client: &reqwest::Client) -> Result<String, reqwest::Error> {
+//     let response = fetch_url(client, &node.url_to_string()).await?;
+// }
 
-    if response.is_err() {
-        return Vec::new();
-    }
-    let body = response.unwrap();
-
-    // println!("URL {} links to :", node.url_to_string());
-    let links = Document::from(body.as_str())
+fn get_page_links(body: &str) -> Vec<String> {
+    let links = Document::from(body)
         .find(Name("a").or(Name("link")))
         .filter_map(|n| n.attr("href"))
         .map(|n| n.to_string())
         .collect();
-    // for link in &links {
-    //     // println!("{}", &link);
-    // }
     return links;
 }
 
-fn link_is_html(link: &String, client: &reqwest::blocking::Client) -> bool {
+async fn get_link_head(
+    link: &String,
+    client: reqwest::Client,
+) -> Result<reqwest::header::HeaderMap, reqwest::Error> {
     let mut our_headers = reqwest::header::HeaderMap::new();
     our_headers.insert("user-agent", "'Mozilla/5.0".parse().unwrap());
 
-    let ret = client.head(link).headers(our_headers).send();
-    if ret.is_err() {
-        return false;
-    }
-    let res_headers = ret.unwrap().headers().clone();
-    // for ct in res_headers.get_all("Content-Type") {
-    //     if ct.to_str().contains("html")
-    //         || ct.to_str().contains("HTML")
-    //         || ct.to_str().contains("Html")
-    //     {
-    //         return true;
-    //     }
-    // }
-    // false
-    if let Some(ct) = res_headers.get("Content-type") {
+    let ret = client.head(link).headers(our_headers).send().await?;
+    Ok(ret.headers().clone())
+}
+
+fn link_is_html_from_head(head: reqwest::header::HeaderMap) -> bool {
+    if let Some(ct) = head.get("Content-type") {
         let ct_str = ct.to_str().unwrap_or("");
-        //ToDo: consider supporting "text/plain"
         return ct_str.contains("html") || ct_str.contains("HTML") || ct_str.contains("text/plain");
     } else {
         return false;
     }
 }
 
-fn is_in_domain_list(url: &String, list: &Vec<&str>) -> bool {
-    use reqwest::Error;
-
+fn is_in_domain_list(url: &String, list: &Vec<String>) -> bool {
     match Url::parse(url) {
         Ok(parsed_url) => {
             if let Some(domain) = parsed_url.domain() {
-                list.contains(&domain)
+                list.contains(&String::from(domain))
             } else {
                 // url has root domain, ie, the domain is "/".
                 //we will assume for now that is not in any list.
                 false
             }
         }
-        // Err(e) => {
-        //     println!("Error, url cannot be parsed. {}", e);
-        //     panic!()
-        // }
         Err(_) => false, // implicitly, the url is not in the list
     }
+}
+
+async fn get_html_links_from_node(
+    node: &WebNode,
+    client: reqwest::Client,
+    blacklist: &Vec<String>,
+) -> Vec<String> {
+    let page_body_res = fetch_url(&client, node.url_to_string().as_str()).await;
+    let page_body = match page_body_res {
+        Ok(body) => body,
+        Err(_) => {
+            // println!("cannot fetch {:?}", node.url_to_string());
+            return Vec::new(); //could propgate the error but empty vec is the same thing basically
+        }
+    };
+
+    let links: Vec<String> = get_page_links(&page_body)
+        .into_iter()
+        .filter(|link| !is_in_domain_list(link, blacklist))
+        .collect();
+
+    let mut html_links = Vec::with_capacity(links.len());
+
+    let (tx, mut rx) = mpsc::channel(links.len());
+
+    for link in links {
+        let txx = tx.clone();
+        let client_x = client.clone();
+        tokio::spawn(async move {
+            let ret = get_link_head(&link, client_x).await;
+            let mut head;
+            match ret {
+                Err(e) => {
+                    // println!("Cannot get link head. \nError: {}\nLink: {}", e, link);
+                    drop(txx); //would be called automattically, but because it is part of the control flow, i am making it explicit here.
+                    return;
+                }
+                Ok(v) => {
+                    head = v;
+                }
+            }
+
+            match link_is_html_from_head(head) {
+                true => {
+                    if let Err(_) = txx.send(link.clone()).await {
+                        println!("Cannot send link to reciver. Will panic. Link: {}", link);
+                        println!("txx.is_closed = {}", txx.is_closed());
+                        panic!();
+                    }
+                }
+                false => {}
+            };
+            drop(txx); //would be called automattically, but because it is part of the control flow, i am making it explicit here.
+        });
+    }
+
+    //This is what we use to spawn all the transmitters, but if we dont drop this one,
+    //the reciver will never finish either.
+    drop(tx);
+
+    while let Some(html_link) = rx.recv().await {
+        // println!("just added an html link: {}", &html_link);
+        html_links.push(html_link);
+    }
+    // println!("html links: {:?}", html_links);
+    return html_links;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -182,8 +228,10 @@ impl std::fmt::Debug for WebNode {
 
 static URL_CHAR_LIMIT: usize = 6000;
 
-fn main() {
-    let stubs = vec![
+#[tokio::main]
+async fn main() {
+    //these lists should perhaps be Arc<Vec<String>>
+    let stubs: Vec<String> = vec![
         "facebook.com",
         "youtube.com",
         "instagram.com",
@@ -191,48 +239,137 @@ fn main() {
         "stackoverflow.com",
         "adobe.com",
         "patreon.com",
-    ];
-    let blacklist = vec![
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect();
+
+    let blacklist: Vec<String> = vec![
         "use.typekit.net",
         "cdn.cookielaw.org",
         "assets.adobedtm.com",
-    ];
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect();
+
     let root_url = "https://www.talesofaredclayrambler.com/episodes?year=2017";
     // let root_url = "https://www.goodmorningandgoodnight.com/";
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
 
     let mut g: DiGraphMap<WebNode, ()> = DiGraphMap::new();
     let mut cur_uncrawled = vec![g.add_node(WebNode::new(Uncrawled, root_url))];
 
     let mut depth = 0;
-    while cur_uncrawled.len() != 0 && depth < 2 {
+    while cur_uncrawled.len() != 0 && depth < 3 {
         let mut new_uncrawled = Vec::with_capacity(cur_uncrawled.len() * 4);
 
-        for mut node in &mut cur_uncrawled {
+        let (tx, mut rx) = mpsc::channel(cur_uncrawled.len());
+
+        for node in cur_uncrawled {
+            println!("beginning processing for node {}", node.url_to_string());
+
             if is_in_domain_list(&node.url_to_string(), &stubs) {
-                node.state = Complete;
+                // node.state = Complete;
+                println!(
+                    "skipping this node because it is a stub! Url: {}",
+                    node.url_to_string()
+                );
                 continue;
             }
+            // node.state = InProgress;
 
-            node.state = InProgress;
+            let client_x = client.clone();
+            let blacklist_x = blacklist.clone();
+            let node_x = node.clone();
 
-            let page_links: Vec<String> = get_page_links(&node, &client)
-                .into_iter()
-                .filter(|link| !is_in_domain_list(link, &blacklist))
-                .filter(|link| link_is_html(link, &client))
-                .collect();
-            for page in page_links {
-                let pg = WebNode::new(Uncrawled, &page);
-                if g.contains_node(pg) {
-                    g.add_edge(*node, pg, ());
-                } else {
-                    new_uncrawled.push(g.add_node(WebNode::new(Uncrawled, &page)));
-                    g.add_edge(*node, pg, ());
+            println!("node url: {}", node.url_to_string());
+
+            let txx = tx.clone();
+            tokio::spawn(async move {
+                let fut_html_links = get_html_links_from_node(&node_x, client_x, &blacklist_x);
+
+                let html_links: Vec<String> =
+                    match timeout(Duration::from_secs(5), fut_html_links).await {
+                        Err(e) => {
+                            println!("did not receive value within 5s. Err: {}", e);
+                            Vec::new()
+                        }
+                        Ok(v) => v,
+                    };
+
+                if html_links.len() == 0 {
+                    println!("no html links from this page");
                 }
-            }
-            node.state = Complete;
+
+                println!(
+                    "get_html_links_from node finished for node with url {}",
+                    node.url_to_string()
+                );
+                if let Err(e) = txx.send((node.clone(), html_links)).await {
+                    println!("error trying to send html links to reciver. Error: {}", e);
+                    //should I drop txx here?
+                    panic!();
+                }
+                drop(txx); // would be done automattically
+                           // but im making it clear this is part of the control flow
+            });
+
+            // node.state = Complete;
+            println!(
+                "line:{}   rx_{} counts - Strong:{}, Weak:{}",
+                line!(),
+                depth,
+                rx.sender_strong_count(),
+                rx.sender_weak_count()
+            );
         }
+
+        println!(
+            "line:{}   rx_{} counts - Strong:{}, Weak:{}",
+            line!(),
+            depth,
+            rx.sender_strong_count(),
+            rx.sender_weak_count()
+        );
+
+        //This is what we use to spawn all the transmitters, but if we dont drop this one,
+        //the reciver will never finish either.
+        drop(tx);
+        println!("dropping tx");
+        println!(
+            "line:{}   rx_{} counts - Strong:{}, Weak:{}",
+            line!(),
+            depth,
+            rx.sender_strong_count(),
+            rx.sender_weak_count()
+        );
+
+        while let Some((node, html_links)) = rx.recv().await {
+            for link in html_links {
+                let pg = WebNode::new(Uncrawled, &link);
+                if g.contains_node(pg) {
+                    g.add_edge(node, pg, ());
+                } else {
+                    new_uncrawled.push(g.add_node(WebNode::new(Uncrawled, &link)));
+                    g.add_edge(node, pg, ());
+                }
+                // println!("node added");
+            }
+            println!("added all nodes for block of html links");
+            println!(
+                "line:{}   rx_{} counts - Strong:{}, Weak:{}",
+                line!(),
+                depth,
+                rx.sender_strong_count(),
+                rx.sender_weak_count()
+            );
+        }
+
+        println!("done adding nodes for level {}", depth);
+
+        // node.state = Complete;
 
         cur_uncrawled = new_uncrawled;
         depth += 1;
