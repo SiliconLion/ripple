@@ -18,9 +18,12 @@ use std::time::Duration;
 
 use petgraph::dot::{Config, Dot};
 use petgraph::graphmap::DiGraphMap;
+
 use reqwest::blocking::Request;
 use reqwest::IntoUrl;
-use reqwest::Url;
+
+use url::{ParseError, Url};
+
 use select::document::Document;
 use select::predicate::Name;
 use select::predicate::Predicate;
@@ -75,11 +78,36 @@ fn link_is_html_from_head(head: reqwest::header::HeaderMap) -> bool {
     }
 }
 
-fn is_in_domain_list(url: &String, list: &Vec<String>) -> bool {
+//todo: I know there is a lot of going back and forth between strings and Url's thats not strictly necessary.
+fn normalize_url(url: &String, root: Option<reqwest::Url>) -> Result<String, ParseError> {
     match Url::parse(url) {
+        Err(e) => {
+            if url.starts_with("/") {
+                match root {
+                    Some(root_contents) => {
+                        let joined = root_contents.join(url)?;
+                        normalize_url(&String::from(joined), None)
+                    }
+                    None => Err(e),
+                }
+            } else {
+                return Err(e);
+            }
+        }
+        Ok(parsed_url) => Ok(String::from(parsed_url.as_str())),
+    }
+}
+
+fn is_in_domain_list(url: &String, list: &Vec<String>) -> bool {
+    match reqwest::Url::parse(url) {
         Ok(parsed_url) => {
             if let Some(domain) = parsed_url.domain() {
-                list.contains(&String::from(domain))
+                for item in list {
+                    if item.contains(&domain) {
+                        return true;
+                    }
+                }
+                return false;
             } else {
                 // url has root domain, ie, the domain is "/".
                 //we will assume for now that is not in any list.
@@ -104,10 +132,23 @@ async fn get_html_links_from_node(
         }
     };
 
+    let root_url = match reqwest::Url::parse(&node.url_to_string()) {
+        Err(_) => {
+            println!("wtf? cant parse a url that is in a web node? This should have been ");
+            panic!()
+        }
+        Ok(v) => v,
+    };
+
     let links: Vec<String> = get_page_links(&page_body)
         .into_iter()
         .filter(|link| !is_in_domain_list(link, blacklist))
+        .map(|link| normalize_url(&link, Some(root_url.clone())))
+        .filter_map(|norm_res: Result<String, ParseError>| norm_res.ok())
         .collect();
+    if links.len() == 0 {
+        return Vec::new();
+    }
 
     let mut html_links = Vec::with_capacity(links.len());
 
@@ -236,6 +277,7 @@ async fn main() {
         "youtube.com",
         "instagram.com",
         "x.com",
+        "twitter.com",
         "stackoverflow.com",
         "adobe.com",
         "patreon.com",
@@ -262,14 +304,12 @@ async fn main() {
     let mut cur_uncrawled = vec![g.add_node(WebNode::new(Uncrawled, root_url))];
 
     let mut depth = 0;
-    while cur_uncrawled.len() != 0 && depth < 3 {
+    while cur_uncrawled.len() != 0 && depth < 6 {
         let mut new_uncrawled = Vec::with_capacity(cur_uncrawled.len() * 4);
 
         let (tx, mut rx) = mpsc::channel(cur_uncrawled.len());
 
         for node in cur_uncrawled {
-            println!("beginning processing for node {}", node.url_to_string());
-
             if is_in_domain_list(&node.url_to_string(), &stubs) {
                 // node.state = Complete;
                 println!(
@@ -283,8 +323,6 @@ async fn main() {
             let client_x = client.clone();
             let blacklist_x = blacklist.clone();
             let node_x = node.clone();
-
-            println!("node url: {}", node.url_to_string());
 
             let txx = tx.clone();
             tokio::spawn(async move {
@@ -301,12 +339,9 @@ async fn main() {
 
                 if html_links.len() == 0 {
                     println!("no html links from this page");
+                    return;
                 }
 
-                println!(
-                    "get_html_links_from node finished for node with url {}",
-                    node.url_to_string()
-                );
                 if let Err(e) = txx.send((node.clone(), html_links)).await {
                     println!("error trying to send html links to reciver. Error: {}", e);
                     //should I drop txx here?
@@ -315,36 +350,11 @@ async fn main() {
                 drop(txx); // would be done automattically
                            // but im making it clear this is part of the control flow
             });
-
-            // node.state = Complete;
-            println!(
-                "line:{}   rx_{} counts - Strong:{}, Weak:{}",
-                line!(),
-                depth,
-                rx.sender_strong_count(),
-                rx.sender_weak_count()
-            );
         }
-
-        println!(
-            "line:{}   rx_{} counts - Strong:{}, Weak:{}",
-            line!(),
-            depth,
-            rx.sender_strong_count(),
-            rx.sender_weak_count()
-        );
 
         //This is what we use to spawn all the transmitters, but if we dont drop this one,
         //the reciver will never finish either.
         drop(tx);
-        println!("dropping tx");
-        println!(
-            "line:{}   rx_{} counts - Strong:{}, Weak:{}",
-            line!(),
-            depth,
-            rx.sender_strong_count(),
-            rx.sender_weak_count()
-        );
 
         while let Some((node, html_links)) = rx.recv().await {
             for link in html_links {
@@ -357,14 +367,6 @@ async fn main() {
                 }
                 // println!("node added");
             }
-            println!("added all nodes for block of html links");
-            println!(
-                "line:{}   rx_{} counts - Strong:{}, Weak:{}",
-                line!(),
-                depth,
-                rx.sender_strong_count(),
-                rx.sender_weak_count()
-            );
         }
 
         println!("done adding nodes for level {}", depth);

@@ -13,3 +13,5 @@ select = "0.4.3"
 rayon = { version = "*" }
 petgraph = "0.8.3"
 owo-colors = "4.2.3"
+url = "2.5.8"
+urlnorm = "0.1.6"
