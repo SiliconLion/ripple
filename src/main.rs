@@ -72,8 +72,20 @@ async fn get_link_head(
 fn link_is_html_from_head(head: reqwest::header::HeaderMap) -> bool {
     if let Some(ct) = head.get("Content-type") {
         let ct_str = ct.to_str().unwrap_or("");
-        return ct_str.contains("html") || ct_str.contains("HTML") || ct_str.contains("text/plain");
+        match ct_str.contains("html") || ct_str.contains("HTML") || ct_str.contains("text") {
+            true => {
+                return true;
+            }
+            false => {
+                println!(
+                    "link skipped because it is not html. Doctype is: {}",
+                    ct_str
+                );
+                return false;
+            }
+        }
     } else {
+        println!("link skipped because it had no content type");
         return false;
     }
 }
@@ -329,7 +341,7 @@ async fn main() {
                 let fut_html_links = get_html_links_from_node(&node_x, client_x, &blacklist_x);
 
                 let html_links: Vec<String> =
-                    match timeout(Duration::from_secs(5), fut_html_links).await {
+                    match timeout(Duration::from_secs(20), fut_html_links).await {
                         Err(e) => {
                             println!("did not receive value within 5s. Err: {}", e);
                             Vec::new()
