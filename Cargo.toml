@@ -17,3 +17,6 @@ url = "2.5.8"
 urlnorm = "0.1.6"
 texting_robots = "0.2.2"
 anyhow = "1.0.102"
+thiserror = "2.0.18"
+lazy_static = "1.5.0"
+derive_more = { version = "2.1.1", features = ["display"] }
