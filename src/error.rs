@@ -21,3 +21,6 @@
 // //         CliError::IoError(error)
 // //     }
 // // }
+
+pub use anyhow::{bail, Context};
+pub type AnyErr = anyhow::Error;

@@ -1,22 +1,19 @@
-use crate::webutils::*;
+use crate::gov::*;
 use petgraph::dot::{Config, Dot};
 use petgraph::matrix_graph::NodeIndex;
 use petgraph::prelude::StableDiGraph;
 use url::Url;
 
 use std::collections::*;
-use std::time::Duration;
 
-// use crate::webutils::have_same_domain;
-use crate::webutils::*;
+use crate::gov::*;
+use crate::link::Link;
 
 use anyhow::{bail, Context};
-type AnyErr = anyhow::Error;
-
-static URL_CHAR_LIMIT: usize = 6000;
+pub type AnyErr = anyhow::Error;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum CrawlState {
+pub enum CrawlState {
     Uncrawled,
     // InProgress,
     Crawled,
@@ -29,41 +26,22 @@ use CrawlState::*;
 #[derive(Clone)]
 pub struct WebNode {
     //page info
-    url: [char; URL_CHAR_LIMIT + 1], // +1 to have '\0' at the end in case i need a Cstr
-    url_len: usize,
+    link: Link,
+    body: Option<String>,
 
     //graph info
     state: CrawlState,
     depth: u32,
-
-    body: Option<String>,
 }
 
 impl WebNode {
-    pub fn new(state: CrawlState, url_str: &str) -> WebNode {
-        let mut node = WebNode {
+    pub fn new(state: CrawlState, link: Link) -> WebNode {
+        WebNode {
             state,
-            url: ['\0'; URL_CHAR_LIMIT + 1],
-            url_len: 0,
+            link,
             depth: 0,
             body: None,
-        };
-
-        if url_str.len() > URL_CHAR_LIMIT {
-            panic!(
-                "Cannot create WebNode with Url longer than {} characters",
-                URL_CHAR_LIMIT
-            )
         }
-        for (i, character) in url_str.chars().enumerate() {
-            node.url[i] = character;
-        }
-        node.url_len = url_str.len();
-        node
-    }
-    //should it be "to string" or "as string"? Or string_from_url? Returns a new string...
-    pub fn url_to_string(&self) -> String {
-        return self.url.iter().collect();
     }
 }
 
@@ -78,16 +56,16 @@ const MAX_DEPTH: u32 = 10;
 #[derive(Debug)]
 pub struct DomainMap {
     explored: bool,
-    domain: String,
+    domain: String, //has www. stripped but does have TLD
     graph: StableDiGraph<WebNode, ()>,
-    node_keys: HashMap<String, NodeIndex<u32>>,
+    node_keys: HashMap<Link, NodeIndex<u32>>, //all these links should have the same domain as self.domain of course
     gov: Govenor,
 }
 
 impl DomainMap {
     pub fn new(domain: String) -> Result<DomainMap, AnyErr> {
         let explored = false;
-        let gov = Govenor::from_link(Url::parse(&domain)?)?;
+        let gov = Govenor::from_domain(&domain)?;
         let node_keys = HashMap::new();
         let graph = StableDiGraph::<WebNode, ()>::new();
 
@@ -100,36 +78,41 @@ impl DomainMap {
         })
     }
 
-    pub fn keys_to_unexplored_nodes(&self) -> Vec<String> {
-        // self.node_keys
-        //     .keys
-        //     .filter(|(_, node_idx| node.state == Uncrawled)
-        //     .collect()
-        unimplemented!();
+    pub fn get_url_to_domain(&self) -> Url {
+        Url::parse(&(String::from("https://") + &self.domain)).unwrap()
     }
 
+    // pub fn keys_to_unexplored_nodes(&self) -> Vec<String> {
+    //     // self.node_keys
+    //     //     .keys
+    //     //     .filter(|(_, node_idx| node.state == Uncrawled)
+    //     //     .collect()
+    //     unimplemented!();
+    // }
+
     //does not check to see if that page is already in the graph
-    pub fn add_page(&mut self, page: String) {
-        let idx = self.graph.add_node(WebNode::new(Uncrawled, &page));
-        self.node_keys.insert(page, idx);
+    pub fn add_page(&mut self, page: &Link) {
+        println!("adding page {page:?}");
+        let idx = self.graph.add_node(WebNode::new(Uncrawled, page.clone()));
+        self.node_keys.insert(page.clone(), idx);
     }
 
     //panics if page does not point to a node in the graph
-    pub fn remove_node(&mut self, page: String) -> WebNode {
+    pub fn remove_node(&mut self, page: &Link) -> WebNode {
         let idx = self.node_keys.get(&page).unwrap();
         return self.graph.remove_node(*idx).unwrap();
     }
-    pub fn node_at(&mut self, page: String) -> &mut WebNode {
-        unimplemented!();
+    pub fn node_at(&mut self, page: &Link) -> &mut WebNode {
+        &mut self.graph[self.node_keys[page]]
     }
-    pub fn add_edge(&mut self, page1: String, page2: String) {
+    pub fn add_edge(&mut self, page1: &Link, page2: &Link) {
         let idx1 = self.node_keys.get(&page1).unwrap();
         let idx2 = self.node_keys.get(&page2).unwrap();
 
         self.graph.add_edge(*idx1, *idx2, ());
     }
 
-    pub fn has_edge(&mut self, page1: String, page2: String) -> bool {
+    pub fn has_edge(&mut self, page1: &Link, page2: &Link) -> bool {
         let idx1 = *self.node_keys.get(&page1).unwrap();
         let idx2 = *self.node_keys.get(&page2).unwrap();
         match self.graph.edges_connecting(idx1, idx2).next() {
@@ -139,7 +122,7 @@ impl DomainMap {
     }
 
     //panics if there is no edge between these
-    pub fn remove_edge(&mut self, page1: String, page2: String) {
+    pub fn remove_edge(&mut self, page1: &Link, page2: &Link) {
         let idx1 = *self.node_keys.get(&page1).unwrap();
         let idx2 = *self.node_keys.get(&page2).unwrap();
         let edge_idx = self.graph.find_edge(idx1, idx2).unwrap();
@@ -148,33 +131,44 @@ impl DomainMap {
 
     //returns Vec of links to html pages outside of this domain
     //does not bounds check to make sure that node_key is valid
-    pub fn explore_node(&mut self, node_key: &String) -> Result<Vec<String>, AnyErr> {
+    pub fn explore_node(&mut self, node_key: &Link) -> Result<Vec<Link>, AnyErr> {
+        println!("exploring node: {node_key:?}");
         let node_idx = self.node_keys[node_key];
-        let node = &self.graph[node_idx];
+        let node = &mut self.graph[node_idx];
+
+        println!("in explore_node");
 
         let body = match &node.body {
             Some(b) => b.clone(),
-            None => self.gov.get_url(&node.url_to_string())?,
+            None => self.gov.get_url(&node.link.as_string(), false)?,
         };
+        println!("got node body");
+
         let html_links = self.gov.html_links_from_page_body(body);
 
-        let inner_links: Vec<String> = html_links
+        let self_dom = self.domain.clone(); //just doing this to avoid a borrowing conflict
+        let inner_links: Vec<Link> = html_links
             .iter()
-            .filter(|link| have_same_domain(&self.domain, link))
+            .filter(|link| self_dom == link.domain)
             .map(|link| link.clone())
             .collect();
-        let outer_links: Vec<String> = html_links
+        let outer_links: Vec<Link> = html_links
             .iter()
-            .filter(|link| !have_same_domain(&self.domain, link))
+            .filter(|link| self_dom != link.domain)
             .map(|link| link.clone())
             .collect();
+
+        println!("inner_links: {inner_links:?}");
+        println!("outer_links: {outer_links:?}");
+
+        node.state = CrawlState::Crawled;
 
         for link in inner_links {
             if self.node_keys.contains_key(&link) {
                 let link_idx = self.node_keys[&link];
                 self.graph.add_edge(node_idx, link_idx, ());
             } else {
-                let link_idx = self.graph.add_node(WebNode::new(Uncrawled, &link));
+                let link_idx = self.graph.add_node(WebNode::new(Uncrawled, link));
                 self.graph.add_edge(node_idx, link_idx, ());
             }
         }
@@ -182,12 +176,18 @@ impl DomainMap {
         return Ok(outer_links);
     }
 
-    pub fn explore_all_nodes(&mut self) -> Vec<(String, Vec<String>)> {
-        let keys: Vec<String> = self.node_keys.keys().map(|key| key.clone()).collect();
+    pub fn explore_all_nodes(&mut self) -> Vec<(Link, Vec<Link>)> {
+        let keys: Vec<Link> = self.node_keys.keys().map(|key| key.clone()).collect();
 
-        let mut all_outer_links: Vec<(String, Vec<String>)> = Vec::with_capacity(keys.len());
+        let mut all_outer_links: Vec<(Link, Vec<Link>)> = Vec::with_capacity(keys.len());
         for key in keys {
-            let outer_links = self.explore_node(&key).unwrap_or_else(|_| Vec::new());
+            let outer_links = match self.explore_node(&key) {
+                Ok(l) => l,
+                Err(e) => {
+                    println!("{e}");
+                    Vec::new()
+                }
+            };
             all_outer_links.push((key.clone(), outer_links));
         }
 
@@ -197,15 +197,20 @@ impl DomainMap {
 }
 
 #[derive(Clone, Debug)]
-pub struct DomainLink {
-    domain_from: String,
-    page_from: String,
-    domain_to: String,
-    page_to: String,
+pub struct DomainEdge {
+    from: Link,
+    to: Link,
 }
 
+impl DomainEdge {
+    pub fn new(from: Link, to: Link) -> DomainEdge {
+        DomainEdge { from, to }
+    }
+}
+
+#[derive(Debug)]
 pub struct WebMap {
-    pub graph: StableDiGraph<DomainMap, DomainLink, u32>,
+    pub graph: StableDiGraph<DomainMap, DomainEdge, u32>,
     pub node_keys: HashMap<String, NodeIndex<u32>>,
 }
 
@@ -219,81 +224,70 @@ impl WebMap {
     }
     //this doesn't validate the domain or anything like that
     pub fn add_domain(&mut self, domain_name: &String) -> Result<NodeIndex<u32>, AnyErr> {
+        println!("domain_name: {domain_name}");
         let domain_idx = self.graph.add_node(DomainMap::new(domain_name.clone())?);
         self.node_keys.insert(domain_name.clone(), domain_idx);
         return Ok(domain_idx);
     }
 
-    //returns the name of the domain on sucess
-    pub fn add_page(&mut self, page: &String) -> Result<String, AnyErr> {
-        let url = Url::parse(&page)?;
-        let domain_name = match url.domain() {
-            Some(d) => d,
-            None => {
-                bail!("page has no domain")
-            }
+    pub fn get_domain_or_add(&mut self, domain_name: &String) -> Result<&mut DomainMap, AnyErr> {
+        let idx = match self.node_keys.contains_key(domain_name) {
+            true => self.node_keys[domain_name],
+            false => self.add_domain(&domain_name)?,
         };
-
-        let domain_idx = self.add_domain(&From::from(domain_name))?;
-        let domain = &mut self.graph[domain_idx];
-        domain.add_page(page.clone());
-        return Ok(domain_name.to_string());
+        return Ok(&mut self.graph[idx]);
     }
 
-    pub fn add_links(&mut self, links: Vec<DomainLink>) -> Result<(), AnyErr> {
-        //ToDo: Should we be verifying these links? ie, trying to load them or request their heads or something before adding them?
-        // For now we will not
-        for link in links {
-            let domain_from_idx = self.node_keys[&link.domain_from];
-            let domain_to_idx = match self.node_keys.get(&link.domain_to) {
-                Some(idx) => idx.clone(),
-                None => self.add_domain(&link.domain_to)?,
-            };
-            self.graph
-                .add_edge(domain_from_idx, domain_to_idx, link.clone());
-            //so now by this point we have the connection between *domains*, but need to add the *pages*
-            //within the domains
+    //returns the name of the domain on sucess
+    pub fn add_page(&mut self, page: &Link) -> Result<String, AnyErr> {
+        let domain = self.get_domain_or_add(&page.domain)?;
+        domain.add_page(page);
+        Ok(page.domain.clone())
+    }
 
-            let domain_to = &mut self.graph[domain_to_idx];
-            if domain_to.node_keys.contains_key(&link.page_to) != true {
-                domain_to.add_page(link.page_to);
-            } //else do nothing because that page is already in the domain.
-              //we don't need to duplicate this for domain_from because the link comes from a page in a domain
-        }
+    pub fn add_edge(&mut self, from: Link, to: Link) -> Result<(), AnyErr> {
+        let domain_from_idx = self.node_keys[&from.domain];
+        let domain_to_idx = match self.node_keys.get(&to.domain) {
+            Some(idx) => idx.clone(),
+            None => self.add_domain(&to.domain)?,
+        };
+        self.graph.add_edge(
+            domain_from_idx,
+            domain_to_idx,
+            DomainEdge::new(from.clone(), to.clone()),
+        );
+        //so now by this point we have the edge between *domains*, but need to add the *pages*
+        //within the domains. We assume the page already exists in the "from" domain map, so we only need to
+        // make sure the page exists in the domain "to"
+
+        let domain_to = &mut self.graph[domain_to_idx];
+        if domain_to.node_keys.contains_key(&to) != true {
+            domain_to.add_page(&to);
+        } //else do nothing because that page is already in the domain.
+          //we don't need to duplicate this for domain_from because the link comes from a page in a domain
         Ok(())
     }
 
-    //ToDo,
-    pub fn explore_domains(&mut self, domain_names: Vec<String>) -> Result<(), AnyErr> {
+    //panics if one of the domain names does not correspond to a domain in the WebMap
+    pub fn explore_domains(&mut self, domain_names: Vec<String>) {
         for domain_name in domain_names {
-            let dom_idx = match self.node_keys.get(&domain_name) {
-                Some(idx) => idx.clone(),
-                None => self.add_domain(&domain_name)?,
-            };
+            println!("exploring domain: {domain_name}");
+            let dom_idx = self.node_keys.get(&domain_name).unwrap();
 
-            let domain = &mut self.graph[dom_idx]; //valid because we just made sure dom_idx points to something in the graph
-            let domain_link_lists = domain.explore_all_nodes();
+            let domain = &mut self.graph[*dom_idx];
+            let domain_outside_links = domain.explore_all_nodes();
 
-            let mut all = Vec::with_capacity(domain_link_lists.len() * 5);
-
-            for link_list in domain_link_lists {
+            for link_list in domain_outside_links {
                 let (page_from, pages_to) = link_list.clone();
-                //Todo: handle this unwrap?
-                let domain_from = String::from(Url::parse(&page_from)?.domain().unwrap());
 
                 for page_to in &pages_to {
-                    let domain_to = String::from(Url::parse(&page_to)?.domain().unwrap());
-                    all.push(DomainLink {
-                        domain_from: String::from(domain_from.clone()),
-                        page_from: String::from(page_from.clone()),
-                        domain_to: String::from(domain_to.clone()),
-                        page_to: String::from(page_to.clone()),
-                    });
+                    let res = self.add_edge(page_from.clone(), page_to.clone());
+                    if res.is_err() {
+                        println!("Error in explore domains. {:?}", res);
+                    }
                 }
             }
-            self.add_links(all);
         }
-        Ok(())
     }
     pub fn explore_all_domains(&mut self) {
         let domain_names: Vec<String> = self.node_keys.keys().map(ToOwned::to_owned).collect();
