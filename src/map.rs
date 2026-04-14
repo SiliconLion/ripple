@@ -55,11 +55,11 @@ const MAX_DEPTH: u32 = 10;
 
 #[derive(Debug)]
 pub struct DomainMap {
-    explored: bool,
-    domain: String, //has www. stripped but does have TLD
-    graph: StableDiGraph<WebNode, ()>,
-    node_keys: HashMap<Link, NodeIndex<u32>>, //all these links should have the same domain as self.domain of course
-    gov: Govenor,
+    pub explored: bool,
+    pub domain: String, //has www. stripped but does have TLD
+    pub graph: StableDiGraph<WebNode, ()>,
+    pub node_keys: HashMap<Link, NodeIndex<u32>>, //all these links should have the same domain as self.domain of course
+    pub gov: Govenor,
 }
 
 impl DomainMap {
@@ -210,7 +210,7 @@ impl DomainEdge {
 
 #[derive(Debug)]
 pub struct WebMap {
-    pub graph: StableDiGraph<DomainMap, DomainEdge, u32>,
+    pub graph: StableDiGraph<DomainMap, Vec<DomainEdge>, u32>,
     pub node_keys: HashMap<String, NodeIndex<u32>>,
 }
 
@@ -251,11 +251,24 @@ impl WebMap {
             Some(idx) => idx.clone(),
             None => self.add_domain(&to.domain)?,
         };
-        self.graph.add_edge(
-            domain_from_idx,
-            domain_to_idx,
-            DomainEdge::new(from.clone(), to.clone()),
-        );
+
+        match self
+            .graph
+            .find_edge_undirected(domain_from_idx, domain_to_idx)
+        {
+            None => {
+                self.graph.add_edge(
+                    domain_from_idx,
+                    domain_to_idx,
+                    vec![DomainEdge::new(from.clone(), to.clone())],
+                );
+            }
+            Some((edge_idx, _)) => {
+                let edge = &mut self.graph[edge_idx];
+                edge.push(DomainEdge::new(from.clone(), to.clone()));
+            }
+        }
+
         //so now by this point we have the edge between *domains*, but need to add the *pages*
         //within the domains. We assume the page already exists in the "from" domain map, so we only need to
         // make sure the page exists in the domain "to"

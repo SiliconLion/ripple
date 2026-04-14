@@ -12,10 +12,12 @@ use std::time::Duration;
 use url::Url;
 
 fn main() -> Result<(), AnyErr> {
-    let root_page = String::from("https://www.talesofaredclayrambler.com/episodes?year=2017");
+    // let root_page = String::from("https://www.talesofaredclayrambler.com/episodes?year=2017");
     // let root_page = String::from("https://www.goodmorningandgoodnight.com/");
     // let root_page = String::from("https://www.scrapethissite.com/pages/");
-    let exploration_depth = 1;
+    // let root_page = String::from("https://bored.com/");
+    let root_page = String::from("https://www.math3ma.com/");
+    let exploration_depth = 2;
 
     let mut web = WebMap::new();
     web.add_page(&Link::new(&root_page)?)?;
@@ -23,11 +25,17 @@ fn main() -> Result<(), AnyErr> {
         web.explore_all_domains();
     }
 
-    let basic_dot = Dot::with_config(&web.graph, &[Config::EdgeNoLabel, Config::NodeNoLabel]);
-    std::fs::write("ripples.dot", format!("{:?}", basic_dot))
-        .expect("should be able to write a file");
-    // println!("{:?}", basic_dot);
-    println!("Complete");
+    // let dot = Dot::with_config(&web.graph, &[Config::EdgeNoLabel, Config::NodeNoLabel]);
 
+    let dot = Dot::with_attr_getters(
+        &web.graph,
+        &[Config::EdgeNoLabel, Config::NodeNoLabel],
+        &|_, edgeref| format!("color = blue, penwidth = {}", edgeref.weight().len()).to_string(),
+        &|_, (_, dom_map)| format!("label = \"{}\"", dom_map.domain.clone()),
+    );
+
+    std::fs::write("ripples.dot", format!("{:?}", dot)).expect("should be able to write a file");
+
+    println!("Complete");
     Ok(())
 }

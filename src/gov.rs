@@ -1,7 +1,7 @@
+use crate::utils::*;
 use crate::{link::*, utils::*, AnyErr};
 use anyhow::bail;
 use lazy_static::lazy_static;
-use reqwest::header::HeaderMap;
 use std::collections::*;
 use std::time::{Duration, Instant, SystemTime};
 use texting_robots::{get_robots_url, Robot};
@@ -27,9 +27,13 @@ lazy_static! {
 
     //ToDo: make this more robust
     pub static ref BLACKLIST: Vec<Link> = vec![
-        "use.typekit.net",
-        "cdn.cookielaw.org",
-        "assets.adobedtm.com",
+        "typekit.net",
+        "cookielaw.org",
+        "adobedtm.com",
+        "adobe.com",
+        "uservoice.com",
+        "googleapis.com",
+
     ]
     .into_iter()
     .map(ToOwned::to_owned)
@@ -60,7 +64,7 @@ impl Default for Govenor {
             client: reqwest::blocking::Client::new(),
             //ToDo: trust this less? ie, dont `see_no_evil`
             forbidden_page_urls: BLACKLIST.clone(),
-            rate: Duration::from_secs(2),
+            rate: Duration::from_secs(1),
             max_requests: 50,
             max_retries: 5,
             total_requests: 0,
@@ -107,7 +111,8 @@ impl Govenor {
     //
     pub fn page_is_forbidden(&self, page: &Link) -> bool {
         for fpage in &self.forbidden_page_urls {
-            if page == fpage {
+            //ToDo: make sure this handles all edge cases
+            if page.as_string().contains(&fpage.as_string()) {
                 return true;
             }
         }
@@ -203,11 +208,14 @@ impl Govenor {
 
     pub fn html_links_from_page_body(&mut self, body: String) -> Vec<Link> {
         let links = get_page_links(&body);
-        println!("here here here!!!");
-        println!("links: {links:?}");
         let mut html_links = Vec::with_capacity(links.len());
 
         for link in links {
+            if let Some(ext) = get_ext(&link.as_string()) {
+                if ext != ".html" || ext != ".txt" || ext != ".rtf" || ext != ".xml" {
+                    continue;
+                }
+            }
             let content_type = match self.get_url(&link.as_string(), true) {
                 Ok(h) => h,
                 Err(e) => {
