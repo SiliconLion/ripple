@@ -1,8 +1,9 @@
+use std::path::Display;
+
 use crate::error::*;
 use crate::utils::strip_www;
 use url::{ParseError, Url};
 
-use select::document::Document;
 use select::predicate::Name;
 use select::predicate::Predicate;
 
@@ -65,16 +66,12 @@ impl Link {
     }
 
     pub fn as_url(&self) -> Url {
-        Url::parse(&("https://".to_owned() + &self.as_string())).unwrap()
+        Url::parse(&self.as_string()).unwrap()
     }
 }
 
-pub fn get_page_links(body: &str) -> Vec<Link> {
-    let links = Document::from(body)
-        .find(Name("a").or(Name("link")))
-        .filter_map(|n| n.attr("href"))
-        .map(|n| Link::new(&n.to_string()))
-        .filter_map(|res| res.ok())
-        .collect();
-    return links;
+impl std::fmt::Display for Link {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_string())
+    }
 }
