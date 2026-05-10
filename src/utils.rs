@@ -1,3 +1,6 @@
+pub use anyhow::{bail, Context};
+pub type AnyErr = anyhow::Error;
+
 pub fn strip_www(s: &String) -> String {
     if s.len() >= 4 {
         if &s[0..=3] == "www." {
