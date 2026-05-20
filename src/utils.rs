@@ -1,4 +1,7 @@
 pub use anyhow::{bail, Context};
+pub use lazy_static::lazy_static;
+
+use std::sync::{Mutex, MutexGuard};
 pub type AnyErr = anyhow::Error;
 
 pub fn strip_www(s: &String) -> String {
@@ -44,5 +47,28 @@ pub fn get_ext(s: &String) -> Option<&str> {
     } else {
         let idx = last.find(".")?;
         return Some(last_n(s, s.len() - idx));
+    }
+}
+
+lazy_static! {
+    static ref GOV_LOCK_RATE: std::time::Duration = std::time::Duration::from_millis(20); // miliseconds
+}
+
+pub fn open_mutex<T>(lock: &Mutex<T>) -> MutexGuard<T> {
+    use std::sync::TryLockError::*;
+    'ACCESS: loop {
+        match lock.try_lock() {
+            Ok(data) => {
+                return data;
+            }
+            Err(e) => match e {
+                WouldBlock => {
+                    tokio::time::sleep(*GOV_LOCK_RATE);
+                }
+                PoisonError => {
+                    panic!("mutex is poisoned");
+                }
+            },
+        }
     }
 }

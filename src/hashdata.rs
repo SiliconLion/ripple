@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::error::*;
 use crate::interface::CrawlState::*;
 use crate::interface::*;
 use crate::link;

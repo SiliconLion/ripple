@@ -1,6 +1,11 @@
-use crate::error::*;
 use crate::gov::*;
 use crate::link::*;
+use crate::utils::*;
+use futures::executor;
+use std::sync::Arc;
+use tokio::task::JoinSet;
+
+// use tokio::
 
 #[derive(Debug)]
 pub enum Action {
@@ -25,11 +30,11 @@ pub trait Strategy {
     fn max_poll_frequency(&self) -> std::time::Duration;
 }
 
-pub trait Selector {
+pub trait Selector: Send + Sync {
     fn extract_canidates(&self, text: &String) -> Vec<Link>;
 }
 
-pub trait Authenticator {
+pub trait Authenticator: Send + Sync {
     // fn is_valid(&self, header: &reqwest::header::HeaderMap) -> bool;
     fn is_valid_from_content_type(&self, content_type: &String) -> bool;
 }
@@ -95,17 +100,17 @@ pub trait Data {
 
 pub struct Application {
     pub strategy: Box<dyn Strategy>,
-    pub selector: Box<dyn Selector>,
-    pub auth: Box<dyn Authenticator>,
+    pub selector: Arc<dyn Selector>,
+    pub auth: Arc<dyn Authenticator>,
     pub data: Box<dyn Data>,
-    bureou: Bureaucracy,
+    bureau: Bureaucracy,
 }
 
 impl Application {
     pub fn new(
         strategy: Box<dyn Strategy>,
-        selector: Box<dyn Selector>,
-        auth: Box<dyn Authenticator>,
+        selector: Arc<dyn Selector>,
+        auth: Arc<dyn Authenticator>,
         data: Box<dyn Data>,
     ) -> Application {
         Application {
@@ -113,7 +118,7 @@ impl Application {
             selector,
             auth,
             data,
-            bureou: Bureaucracy::new(),
+            bureau: Bureaucracy::new(),
         }
     }
 
@@ -122,51 +127,52 @@ impl Application {
             link: root_link,
             state: CrawlState::Canidate,
         });
-        self.work_sync()
+        self.work()
     }
 
-    pub fn work_sync(&mut self) -> Result<(), AnyErr> {
+    pub fn work(&mut self) -> Result<(), AnyErr> {
         while !self.strategy.end(&self.data) {
             let pass_start_time = std::time::Instant::now();
             let next_nodes = self.strategy.next_nodes(&self.data);
 
-            let mut action_results = Vec::new();
+            let mut set = JoinSet::new();
             for (action, link) in next_nodes {
-                //async spawn
-                let res = 'r: {
+                let selector = self.selector.clone();
+                let auth = self.auth.clone();
+                let bureau = self.bureau.clone();
+
+                set.spawn(async move {
                     use Action::*;
                     use CrawlState::*;
-                    match action {
+                    let res = match action {
                         Explore => {
-                            let resp = self.bureou.get_url(&link, false); //await here
+                            let resp = bureau.get_url(&link, false).await; //await here
                             if resp.is_err() {
-                                break 'r CrawlState::Failed;
+                                ActionResult::new(link, Failed)
+                            } else {
+                                let body = resp.unwrap();
+                                let canidates = selector.extract_canidates(&body);
+                                ActionResult::new(link, Explored(canidates))
                             }
-                            let body = resp.unwrap();
-                            let canidates = self.selector.extract_canidates(&body);
-                            break 'r Explored(canidates);
                         }
                         Validate => {
-                            let resp = self.bureou.get_url(&link, true); //await here
+                            let resp = bureau.get_url(&link, true).await; //await here
                             if resp.is_err() {
-                                break 'r Failed;
-                            }
-                            let ct = resp.unwrap();
-                            match self.auth.is_valid_from_content_type(&ct) {
-                                true => {
-                                    break 'r Verified;
-                                }
-                                false => {
-                                    break 'r Rejected;
+                                ActionResult::new(link, Failed)
+                            } else {
+                                let ct = resp.unwrap();
+                                match auth.is_valid_from_content_type(&ct) {
+                                    true => ActionResult::new(link, Verified),
+                                    false => ActionResult::new(link, Rejected),
                                 }
                             }
                         }
-                    }
-                };
-                //async merge
-                action_results.push(ActionResult::new(link, res));
+                    };
+                    res
+                });
             }
 
+            let action_results = executor::block_on(set.join_all());
             for ar in action_results {
                 self.data.update(ar);
             }

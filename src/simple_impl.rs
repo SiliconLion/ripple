@@ -1,4 +1,3 @@
-use crate::error::*;
 use crate::interface::*;
 use crate::utils::*;
 use crate::Link;
@@ -76,6 +75,7 @@ impl ShuffleStrat {
     }
 }
 
+// #[derive(Clone)]
 pub struct HtmlSelector {}
 impl Selector for HtmlSelector {
     fn extract_canidates(&self, text: &String) -> Vec<Link> {
@@ -124,6 +124,7 @@ impl HtmlSelector {
     }
 }
 
+// #[derive(Clone)]
 pub struct HtmlChecker {}
 impl Authenticator for HtmlChecker {
     fn is_valid_from_content_type(&self, content_type: &String) -> bool {
