@@ -77,3 +77,8 @@ pub struct Govenor {
     //mutable
     last_request: std::time::SystemTime,
 }
+
+
+pub struct BurFuture {
+
+}

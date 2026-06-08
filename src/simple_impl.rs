@@ -14,8 +14,8 @@ pub struct ShuffleStrat {
 }
 
 impl Strategy for ShuffleStrat {
-    fn next_nodes(&mut self, data: &Box<dyn Data>) -> Vec<(Action, Link)> {
-        use crate::interface::Action::*;
+    fn next_nodes(&mut self, data: &Box<dyn Data>) -> Vec<(ActionType, Link)> {
+        use crate::interface::ActionType::*;
         use crate::interface::CrawlState::*;
 
         let mut nodes: Vec<Link> = data.all_nodes();
@@ -25,7 +25,7 @@ impl Strategy for ShuffleStrat {
 
         nodes.shuffle(&mut self.rng);
 
-        let actions: Vec<(Action, Link)> = nodes
+        let actions: Vec<(ActionType, Link)> = nodes
             .iter()
             .take(self.max_at_once)
             .filter_map(|link| {
