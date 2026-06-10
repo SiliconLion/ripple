@@ -108,17 +108,17 @@ impl Govenor {
     }
 
     pub fn start(mut self) {
-        std::thread::Builder::new()
+        //todo: log this if it fails or somthing? probably happens if too many threads are created or something
+        let _ = std::thread::Builder::new()
             .name(format!("{}-govenor", self.core.domain))
             .spawn(move || loop {
                 match self.recv.recv() {
-                    Err(e) => {
-                        println!("Error: {e}");
-                        break;
-                    }
                     Ok(submission) => {
                         let res = self.core.get(&submission.page, submission.head_only);
                         submission.sender.send(res);
+                    }
+                    Err(_) => {
+                        break;
                     }
                 }
             });

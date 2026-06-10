@@ -223,6 +223,11 @@ impl Application {
                 self.data.update(ar);
             }
 
+            //ToDo: make this a callback within data or something.
+            let dot = self.data.represent();
+            std::fs::write("ripples.dot", format!("{dot}"))
+                .expect("should be able to write a file");
+
             let pass_end_time = std::time::Instant::now();
 
             let delta = pass_end_time - pass_start_time;

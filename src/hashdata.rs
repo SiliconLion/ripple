@@ -179,7 +179,7 @@ impl HashData {
             dot.push_str("\n");
         }
 
-        dot.push_str("\n}");
+        dot.push_str("\n}\n");
         return dot;
     }
 

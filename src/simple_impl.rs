@@ -88,6 +88,7 @@ impl Selector for HtmlSelector {
         //     .map(|n| Link::new(&n.to_string()))
         //     .filter_map(|res| res.ok())
         //     .collect();
+
         let links: Vec<Link> = Document::from(text.as_str())
             .find(Name("a").or(Name("link")))
             .filter_map(|n| n.attr("href"))

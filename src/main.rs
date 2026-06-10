@@ -36,16 +36,13 @@ fn main() -> Result<(), AnyErr> {
     // );
 
     let mut app = Application::new(
-        Box::new(ShuffleStrat::new(15, 600)),
+        Box::new(ShuffleStrat::new(100, 20)),
         Box::new(HtmlSelector::new()),
         Box::new(HtmlChecker::new()),
         Box::new(HashData::new()),
     );
 
     app.start(Link::new(&root_page)?)?;
-
-    let dot = app.data.represent();
-    std::fs::write("ripples.dot", format!("{dot}")).expect("should be able to write a file");
 
     println!("Complete");
     Ok(())
