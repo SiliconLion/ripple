@@ -89,8 +89,14 @@ impl Selector for HtmlSelector {
         //     .filter_map(|res| res.ok())
         //     .collect();
 
+        // let mut body = Document::from(text.as_str()).find(Name("body"));
+        // let mut a = body.find(|node| node.is(Name("a")));
+
         let links: Vec<Link> = Document::from(text.as_str())
+            // .find(Name("body"))
             .find(Name("a").or(Name("link")))
+            // .find(|node| node.is(Name("a").or(Name("link"))))
+            // .iter()
             .filter_map(|n| n.attr("href"))
             .map(|n| Link::new(&n.to_string()))
             .filter_map(|res| res.ok())

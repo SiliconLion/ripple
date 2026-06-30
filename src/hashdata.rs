@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+use futures::future::MapErr;
+use rand::seq::index;
+
 use crate::interface::CrawlState::*;
 use crate::interface::*;
 use crate::link;
@@ -37,7 +40,16 @@ impl Data for HashData {
             self.data.insert(node.link.domain.clone(), Vec::new());
         }
         let domain = self.data.get_mut(&node.link.domain).unwrap();
-        domain.push(node);
+        let mut contains = false;
+        for e in domain.iter() {
+            if e.link == node.link {
+                contains = true;
+                break;
+            }
+        }
+        if !contains {
+            domain.push(node);
+        }
     }
 
     //potentially very expensive
@@ -78,11 +90,11 @@ impl Data for HashData {
 
     fn all_nodes(&self) -> Vec<Link> {
         self.data
-            .values()
-            .map(|v| v.iter())
-            .flatten()
-            .map(|node| node.link.clone())
-            .collect()
+            .values() // Iterator<Vec<WebNode>>
+            .map(|v| v.iter()) // Iterator<&Iterator<&WebNode>>
+            .flatten() // Iterator<&WebNode>
+            .map(|node| node.link.clone()) //Iterator<Link>
+            .collect() //Vec<Link>
     }
 
     fn domain_names(&self) -> Vec<String> {
@@ -144,19 +156,59 @@ impl HashData {
     pub fn dot_pages(&self) -> String {
         use crate::interface::CrawlState::*;
 
-        let mut link_ids: HashMap<Link, String> = HashMap::new();
+        // let mut link_ids: HashMap<Link, String> = HashMap::new();
+        // let mut counter = 0;
+        // for link in self.all_nodes() {
+        //     HashData::enumerate_link(&mut link_ids, &link, &mut counter);
+        //     match &self.get(&link).state {
+        //         Explored(list) => {
+        //             for e in list {
+        //                 HashData::enumerate_link(&mut link_ids, &e, &mut counter);
+        //             }
+        //         }
+        //         _ => {}
+        //     }
+        // }
+
+        //enumerate all links contained in self.data - begin
+
+        //first enumerate all links that are nodes in self.data
         let mut counter = 0;
-        for link in self.all_nodes() {
-            HashData::enumerate_link(&mut link_ids, &link, &mut counter);
-            match &self.get(&link).state {
-                Explored(list) => {
-                    for e in list {
-                        HashData::enumerate_link(&mut link_ids, &e, &mut counter);
-                    }
-                }
-                _ => {}
+        let mut link_ids = HashMap::new();
+
+        let all_nodes = self.all_nodes();
+        for node_link in &all_nodes {
+            HashData::enumerate_link(&mut link_ids, &node_link, &mut counter);
+        }
+
+        // if counter != all_nodes.len() {
+        //     println!("counter = {counter}");
+        //     println!("all_nodes.len() = {}", all_nodes.len());
+
+        //     println!("\n\n");
+        //     for node in all_nodes {
+        //         println!("{:?}", node);
+        //     }
+        //     panic!();
+        // }
+
+        //then for every node, if it has been explored, enumerate what it links to
+        for node_name in &all_nodes {
+            let node = self.get(node_name);
+            let connections = match &node.state {
+                Explored(c) => c,
+                _ => &Vec::new(),
+            };
+
+            //(connections may obviously be empty)
+            for c in connections {
+                HashData::enumerate_link(&mut link_ids, c, &mut counter);
             }
         }
+
+        //end enumeration
+
+        //construct dot file
 
         let mut dot = String::from("digraph WebMapPages {\n");
         for node_name in self.all_nodes() {

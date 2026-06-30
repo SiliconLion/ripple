@@ -36,7 +36,7 @@ fn main() -> Result<(), AnyErr> {
     // );
 
     let mut app = Application::new(
-        Box::new(ShuffleStrat::new(100, 20)),
+        Box::new(ShuffleStrat::new(100, 2000)),
         Box::new(HtmlSelector::new()),
         Box::new(HtmlChecker::new()),
         Box::new(HashData::new()),
