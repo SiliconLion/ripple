@@ -30,13 +30,15 @@ fn main() -> Result<(), AnyErr> {
     //     "https://www.reddit.com/r/Blogging/comments/1josfud/your_favourite_blog_in_2025/",
     // );
     // let root_page =
-    //     String::from("https://www.theintrinsicperspective.com/p/writing-for-outlets-isnt-worth-it");
+    // String::from("https://www.theintrinsicperspective.com/p/writing-for-outlets-isnt-worth-it");
     // let root_page = String::from(
     //     "https://lithub.com/the-joy-and-privilege-of-growing-up-in-an-indie-bookstore/",
     // );
+    //
+    // let root_page = String::from("https://curlie.org");
 
     let mut app = Application::new(
-        Box::new(ShuffleStrat::new(100, 2000)),
+        Box::new(ShuffleStrat::new(100, 500)),
         Box::new(HtmlSelector::new()),
         Box::new(HtmlChecker::new()),
         Box::new(HashData::new()),

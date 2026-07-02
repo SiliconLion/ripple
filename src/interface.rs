@@ -105,7 +105,6 @@ pub trait Data {
     fn all_nodes(&self) -> Vec<Link>;
     fn domain_names(&self) -> Vec<String>;
     fn get_domain(&self, domain: String) -> Vec<Link>;
-    // fn roots(&self) -> Vec<Link>;
     fn update(&mut self, res: ActionResult);
     fn represent(&self) -> String;
 }

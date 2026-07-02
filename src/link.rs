@@ -29,11 +29,15 @@ static URL_CHAR_LIMIT: usize = 6000;
 //We will assume everything is https, and strip 'www' from everything.
 //domain will include the TLD. Will not include the protocall (ie, https)
 //Page may be empty string if there are not additional segments after the domain.
-//additional params will attempt to be stripped from the end. Eg, passwords and tracking params etc.
+//Paramaters aka querries are preserved. So theres a chance that sensitive information or tracking stuff or whatever
+//comes with. There may be a smarter way to handle this down the line.
+//Also url to same page with different paramaters will not be considered equal. Which may encounter
+//some weird edge cases but they should mostly be degenerate and dont propogate.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Link {
     pub domain: String,
     pub page: String,
+    pub parameters: String,
 }
 
 impl Link {
@@ -54,11 +58,21 @@ impl Link {
         };
 
         let page = String::from(&url.path()[1..=url.path().len() - 1]); //slices the &str to remove the leading '/'
-        Ok(Link { domain, page })
+
+        let parameters = match url.query() {
+            Some(params) => String::from(params),
+            None => String::new(),
+        };
+
+        Ok(Link {
+            domain,
+            page,
+            parameters,
+        })
     }
 
     pub fn as_string(&self) -> String {
-        "https://".to_owned() + &self.domain + "/" + &self.page
+        "https://".to_owned() + &self.domain + "/" + &self.page + "?" + &self.parameters
     }
 
     pub fn as_url(&self) -> Url {
