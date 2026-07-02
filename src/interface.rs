@@ -1,5 +1,4 @@
 use crate::gov::*;
-use crate::interface::CrawlState::Failed;
 use crate::link::*;
 use crate::utils::*;
 

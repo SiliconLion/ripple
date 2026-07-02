@@ -1,7 +1,5 @@
-use std::path::Display;
-
 use crate::utils::*;
-use url::{ParseError, Url};
+use url::Url;
 
 // //todo: I know there is a lot of going back and forth between strings and Url's thats not strictly necessary.
 // fn normalize_url(url: &String, root: Option<reqwest::Url>) -> Result<String, AnyErr> {

@@ -3,22 +3,13 @@ pub mod hashdata;
 pub mod interface;
 pub mod link;
 pub mod simple_impl;
-// pub mod map;
 pub mod utils;
-
-// pub mod scratch;
-// pub mod scratch3;
-
-use std::sync::Arc;
 
 use crate::hashdata::HashData;
 use crate::interface::Application;
 use crate::link::Link;
 use crate::simple_impl::{HtmlChecker, HtmlSelector, ShuffleStrat};
 use crate::utils::*;
-// use petgraph::dot::{Config, Dot};
-// use std::time::Duration;
-// use url::Url;
 
 fn main() -> Result<(), AnyErr> {
     let root_page = String::from("https://www.talesofaredclayrambler.com/episodes?year=2017");

@@ -53,7 +53,7 @@ impl Strategy for ShuffleStrat {
         return actions;
     }
 
-    fn end(&mut self, data: &Box<dyn Data>) -> bool {
+    fn end(&mut self, _data: &Box<dyn Data>) -> bool {
         self.complete
     }
 

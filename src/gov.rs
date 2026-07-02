@@ -1,10 +1,9 @@
+use crate::link::*;
 use crate::utils::*;
-use crate::{link::*, utils::*};
 use anyhow::bail;
-use futures::channel;
 use lazy_static::lazy_static;
 use std::collections::*;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use texting_robots::{get_robots_url, Robot};
 use url::Url;
 
@@ -82,7 +81,7 @@ pub struct GovHandle {
 impl GovHandle {
     pub fn request(&self, page: &Link, head_only: bool) -> Reply {
         let (submission, reply) = new_pair(page, head_only);
-        self.sender.send(submission);
+        let _ = self.sender.send(submission);
         reply
     }
 }

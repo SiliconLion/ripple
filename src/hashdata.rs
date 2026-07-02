@@ -1,12 +1,7 @@
-use std::collections::HashMap;
-
-use futures::future::MapErr;
-use rand::seq::index;
-
 use crate::interface::CrawlState::*;
 use crate::interface::*;
-use crate::link;
 use crate::Link;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct HashData {
