@@ -44,8 +44,6 @@ impl Strategy for ShuffleStrat {
             })
             .collect();
 
-        println!("actions: {actions:?}");
-
         if actions.len() == 0 {
             self.complete = true;
         }
@@ -102,12 +100,6 @@ impl Selector for HtmlSelector {
             .filter_map(|res| res.ok())
             .collect();
 
-        // println!("\n\n\nlinks: [");
-        // for link in &links {
-        //     println!("{link}");
-        // }
-        // println!("]");
-
         let mut html_canidates = Vec::with_capacity(links.len());
 
         for link in links {
@@ -135,21 +127,9 @@ impl HtmlSelector {
 pub struct HtmlChecker {}
 impl Authenticator for HtmlChecker {
     fn is_valid_from_content_type(&self, content_type: &String) -> bool {
-        match content_type.contains("html")
+        return content_type.contains("html")
             || content_type.contains("HTML")
-            || content_type.contains("text")
-        {
-            true => {
-                return true;
-            }
-            false => {
-                println!(
-                    "link skipped because it is not html. Doctype is: {}",
-                    content_type
-                );
-                return false;
-            }
-        }
+            || content_type.contains("text");
     }
 }
 

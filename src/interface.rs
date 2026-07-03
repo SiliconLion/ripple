@@ -106,6 +106,7 @@ pub trait Data {
     fn get_domain(&self, domain: String) -> Vec<Link>;
     fn update(&mut self, res: ActionResult);
     fn represent(&self) -> String;
+    fn print_stats(&self);
 }
 
 pub struct Application {
@@ -220,6 +221,8 @@ impl Application {
             for ar in action_results {
                 self.data.update(ar);
             }
+
+            self.data.print_stats();
 
             //ToDo: make this a callback within data or something.
             let dot = self.data.represent();

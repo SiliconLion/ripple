@@ -136,6 +136,59 @@ impl Data for HashData {
         // s.push_str("}\n");
         // s
     }
+
+    fn print_stats(&self) {
+        let domain_count = self.data.keys().len();
+
+        let all_nodes = self.all_nodes();
+        let node_count = all_nodes.len();
+
+        let mut canidate_count = 0;
+        let mut stub_count = 0;
+        let mut forbidden_count = 0;
+        let mut rejected_count = 0;
+        let mut verified_count = 0;
+        let mut explored_count = 0;
+        let mut failed_count = 0;
+
+        //ToDo: without rstfm this could be so many fewer lines lol
+        for node_name in all_nodes {
+            let node = self.get(&node_name);
+            match node.state {
+                Canidate => {
+                    canidate_count += 1;
+                }
+                Stub => {
+                    stub_count += 1;
+                }
+                Forbidden => {
+                    forbidden_count += 1;
+                }
+                Verified => {
+                    rejected_count += 1;
+                }
+                Rejected => {
+                    verified_count += 1;
+                }
+                Explored(_) => {
+                    explored_count += 1;
+                }
+                Failed => {
+                    failed_count += 1;
+                }
+            }
+        }
+
+        println!("Nodes:     {node_count}");
+        println!("Canidates: {canidate_count}");
+        println!("Stubs:     {stub_count}");
+        println!("Forbidden: {forbidden_count}");
+        println!("Rejected:  {rejected_count}");
+        println!("Verified:  {verified_count}");
+        println!("Explored:  {explored_count}");
+        println!("Failed:    {failed_count}");
+        println!("\n\n");
+    }
 }
 
 impl HashData {
@@ -175,17 +228,6 @@ impl HashData {
         for node_link in &all_nodes {
             HashData::enumerate_link(&mut link_ids, &node_link, &mut counter);
         }
-
-        // if counter != all_nodes.len() {
-        //     println!("counter = {counter}");
-        //     println!("all_nodes.len() = {}", all_nodes.len());
-
-        //     println!("\n\n");
-        //     for node in all_nodes {
-        //         println!("{:?}", node);
-        //     }
-        //     panic!();
-        // }
 
         //then for every node, if it has been explored, enumerate what it links to
         for node_name in &all_nodes {

@@ -169,8 +169,8 @@ impl GovenorCore {
                 gov.robotstxt = Some(robot);
             }
             Err(e) => {
-                //ToDo: there are more error cases here than no robots.txt. Handle better?
-                println!("{e}");
+                // panic!(format!("error in creating govenor. {e}"))
+                println!("error creating govenor!! {e}");
             }
         }
         gov
@@ -178,10 +178,8 @@ impl GovenorCore {
 
     pub fn get_robot(&mut self) -> Result<Robot, AnyErr> {
         let rbts_link = Link::new(&get_robots_url(&self.as_domain_str())?)?;
-        println!("{rbts_link:?}");
         let robots_text = self.get(&rbts_link, false)?;
         let r = Robot::new("SumiCrawler", robots_text.as_bytes());
-        // println!("{:?}", r);
         r
     }
 
@@ -210,7 +208,6 @@ impl GovenorCore {
 
     fn get(&mut self, link: &Link, only_head: bool) -> Result<String, AnyErr> {
         if self.page_is_forbidden(&link) {
-            println!("cannot get that page, it is fobidden!");
             bail!("page is forbidden: {}", link);
         }
 

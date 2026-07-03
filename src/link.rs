@@ -70,7 +70,11 @@ impl Link {
     }
 
     pub fn as_string(&self) -> String {
-        "https://".to_owned() + &self.domain + "/" + &self.page + "?" + &self.parameters
+        if self.parameters.len() > 0 {
+            "https://".to_owned() + &self.domain + "/" + &self.page + "?" + &self.parameters
+        } else {
+            "https://".to_owned() + &self.domain + "/" + &self.page
+        }
     }
 
     pub fn as_url(&self) -> Url {
