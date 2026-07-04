@@ -168,10 +168,7 @@ impl GovenorCore {
                 }
                 gov.robotstxt = Some(robot);
             }
-            Err(e) => {
-                // panic!(format!("error in creating govenor. {e}"))
-                println!("error creating govenor!! {e}");
-            }
+            Err(_) => {} //there is no robots.txt for this domain}
         }
         gov
     }
@@ -252,10 +249,10 @@ impl GovenorCore {
                 return Ok(body);
             } else if status.is_redirection() {
                 //reqwest handles this for us for a default number (10) of redirect hops. So if we end up here, its exceeded that.
-                println!("Error. too many redirects. Url: {link}");
+                eprintln!("Error. too many redirects. Url: {link}");
                 bail!(status);
             } else if status.is_client_error() {
-                println!("Error. Status: {}, Url: {link}", status.as_str());
+                eprintln!("Error. Status: {}, Url: {link}", status.as_str());
                 bail!(status);
             } else if status.is_server_error() {
                 if tries < self.max_tries {

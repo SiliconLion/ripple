@@ -148,7 +148,7 @@ impl Application {
         while !self.strategy.end(&self.data) {
             let pass_start_time = std::time::Instant::now();
             let next_nodes = self.strategy.next_nodes(&self.data);
-
+            //ToDo: make the names in this way way better
             let mut intermediaries1 = Vec::new();
             let mut intermediaries2 = Vec::new();
             let mut action_results = Vec::new();
@@ -175,6 +175,7 @@ impl Application {
                             continue;
                         }
                         Ok(resp) => {
+                            println!("\r{}", ai.link);
                             to_remove.push(i);
                             intermediaries2.push(ActionIntermediary2 {
                                 link: ai.link.clone(),
