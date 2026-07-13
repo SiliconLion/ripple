@@ -179,6 +179,7 @@ impl Data for HashData {
             }
         }
 
+        println!("Domains:   {domain_count}");
         println!("Nodes:     {node_count}");
         println!("Canidates: {canidate_count}");
         println!("Stubs:     {stub_count}");

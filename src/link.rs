@@ -48,6 +48,15 @@ impl Link {
         }
 
         let url = Url::parse(wild_link)?;
+
+        //this condition *should* be covered by the following block of code,
+        //but i'm hitting a bug where there seems to be a URL that returns a path
+        // with no initial slash when .path() is called, and this would be the condition that
+        // would make that possible.
+        if url.cannot_be_a_base() {
+            bail!("cannot be a base: {}", wild_link)
+        }
+
         let domain = match url.domain() {
             Some(d) => strip_www(&String::from(d)),
             None => {

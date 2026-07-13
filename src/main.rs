@@ -50,7 +50,7 @@ fn main() -> Result<(), AnyErr> {
     // let root_page = String::from("https://curlie.org");
 
     let mut app = Application::new(
-        Box::new(ShuffleStrat::new(20, target_node_count)), //ToDo: think more about how to pick max at once
+        Box::new(ShuffleStrat::new(40, target_node_count)), //ToDo: think more about how to pick max at once
         Box::new(HtmlSelector::new()),
         Box::new(HtmlChecker::new()),
         Box::new(HashData::new()),

@@ -2,12 +2,54 @@ use crate::link::*;
 use crate::utils::*;
 use anyhow::bail;
 use lazy_static::lazy_static;
+use petgraph::visit::Time;
+use reqwest::blocking::Client;
 use std::collections::*;
 use std::time::{Duration, SystemTime};
 use texting_robots::{get_robots_url, Robot};
 use url::Url;
 
 use std::sync::mpsc::{channel, Receiver, Sender};
+
+pub struct TimeKeeper {
+    index: HashMap<String, SystemTime>,
+    receiver: Receiver<(String, SystemTime)>,
+    handle: Sender<(String, SystemTime)>,
+}
+
+impl TimeKeeper {
+    pub fn new() -> TimeKeeper {
+        let (s, r) = channel();
+        TimeKeeper {
+            index: HashMap::new(),
+            receiver: r,
+            handle: s,
+        }
+    }
+    pub fn timecard(&self) -> TimeCard {
+        TimeCard {
+            sender: self.handle.clone(),
+        }
+    }
+
+    pub fn process_reports(&mut self) {
+        let reports = self.receiver.try_iter();
+        for report in reports {
+            self.index.insert(report.0, report.1);
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TimeCard {
+    sender: Sender<(String, SystemTime)>,
+}
+
+impl TimeCard {
+    pub fn report_now(&self, domain: &String) {
+        let _ = self.sender.send((domain.clone(), SystemTime::now()));
+    }
+}
 
 lazy_static! {
     //ToDo: make this more robust
@@ -53,7 +95,7 @@ pub struct Submission {
 // I know im 98% of the way to recreating futures, but then I need a channel to pass
 // the waker to the Govenor each time poll is called, and then theres a bunch of control flow reasons
 // that it would spagettify the code for no benifit. When I need it, Ill impliment it and then I can call "await" rather than calling "is_ready"
-// in a loop.
+// in a loop.maximum RAM
 pub struct Reply {
     //ToDo: make this a one shot rather than a full channel
     pub reciver: Receiver<Result<String, AnyErr>>,
@@ -89,14 +131,18 @@ impl GovHandle {
 pub struct Govenor {
     pub recv: Receiver<Submission>,
     pub core: GovenorCore,
+    pub time_card: TimeCard,
+    pub domain: String,
 }
 
 impl Govenor {
-    pub fn create_govenor(domain: &String) -> GovHandle {
+    pub fn create_govenor(domain: &String, time_card: TimeCard) -> GovHandle {
         let (sender, recv) = channel();
         let govenor = Govenor {
             core: GovenorCore::from_domain(domain),
             recv,
+            time_card,
+            domain: domain.clone(),
         };
 
         govenor.start(); //moves the govenor into its own thread
@@ -114,7 +160,8 @@ impl Govenor {
                 match self.recv.recv() {
                     Ok(submission) => {
                         let res = self.core.get(&submission.page, submission.head_only);
-                        submission.sender.send(res);
+                        let _ = submission.sender.send(res);
+                        self.time_card.report_now(&self.domain);
                     }
                     Err(_) => {
                         break;
@@ -139,11 +186,14 @@ pub struct GovenorCore {
     last_request: std::time::SystemTime,
 }
 
-impl Default for GovenorCore {
-    fn default() -> Self {
-        //Todo, set this to the past rather than now. That way when we try to make the first request, we don't have to wait
-        GovenorCore {
-            domain: String::new(),
+impl GovenorCore {
+    pub fn from_domain(domain: &String) -> GovenorCore {
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(6))
+            .build()
+            .unwrap();
+        let mut gov = GovenorCore {
+            domain: domain.clone(),
             forbidden_page_urls: BLACKLIST.clone(),
             rate: Duration::from_secs(1),
             max_requests: 50,
@@ -151,15 +201,8 @@ impl Default for GovenorCore {
             total_requests: 0,
             robotstxt: None,
             last_request: SystemTime::now(),
-            client: reqwest::blocking::Client::new(),
-        }
-    }
-}
-
-impl GovenorCore {
-    pub fn from_domain(domain: &String) -> GovenorCore {
-        let mut gov = GovenorCore::default();
-        gov.domain = domain.clone();
+            client,
+        };
 
         match gov.get_robot() {
             Ok(robot) => {
@@ -269,19 +312,71 @@ impl GovenorCore {
 
 pub struct Bureaucracy {
     govs: HashMap<String, GovHandle>,
+    //ToDo: this maybe should be running in its own thread so reports are processed
+    // continuously, but its fine for now and keeps the datastructures much simpler
+    timekeeper: TimeKeeper,
+}
+
+impl Bureaucracy {
+    const MAX_GOVS: usize = 7000;
+    const FURLOUGH_TIME: Duration = Duration::from_mins(5);
+    const REQUIRED_FURLOUGH_GOVS: usize = 50; //minimum number of govs before we furlough any govs
+    const MIN_FURLOUGH_GOVS: usize = 50; //minimum number of govs to furlough
 }
 
 impl Bureaucracy {
     pub fn new() -> Bureaucracy {
         Bureaucracy {
             govs: HashMap::new(),
+            timekeeper: TimeKeeper::new(),
         }
     }
+
+    //will panic with an index out of bounds if min_furlough is greater than self.govs.len
+    pub fn furlough(&mut self, min_furlough: Option<usize>) {
+        self.timekeeper.process_reports();
+
+        if self.govs.len() < Bureaucracy::REQUIRED_FURLOUGH_GOVS {
+            return;
+        }
+
+        let mut govs: Vec<(&String, &SystemTime)> = self.timekeeper.index.iter().collect();
+        govs.sort_by(|a, b| a.1.cmp(b.1)); //comparing the SystemTimes associated with each domain
+        let now = SystemTime::now();
+        let ret = govs.binary_search_by(|probe| {
+            Bureaucracy::FURLOUGH_TIME
+                .cmp(&now.duration_since(*probe.1).expect("malformed durration"))
+        });
+
+        let mut furlough_idx = match ret {
+            Ok(val) => val,
+            Err(val) => val,
+        };
+
+        if let Some(mf) = min_furlough {
+            if furlough_idx < mf {
+                furlough_idx = mf;
+            }
+        }
+
+        let removals = &govs[0..furlough_idx];
+        for (domain, _) in removals.iter() {
+            let gov = self.govs.remove_entry(domain.as_str());
+            //ToDo: here is where we would log the gov or send it to the database or something.
+            drop(gov); //happens automatically, but its sorta the point so I'm making it explicit.
+        }
+    }
+
     pub fn add_gov(&mut self, domain: &String) -> Result<(), AnyErr> {
         if self.govs.contains_key(domain) {
             bail! {"Govenor with that key already exists"};
         }
-        let gov = Govenor::create_govenor(domain);
+
+        if self.govs.len() >= Bureaucracy::MAX_GOVS {
+            self.furlough(Some(Bureaucracy::MIN_FURLOUGH_GOVS));
+        }
+
+        let gov = Govenor::create_govenor(domain, self.timekeeper.timecard());
         self.govs.insert(domain.clone(), gov);
         Ok(())
     }
@@ -306,5 +401,9 @@ impl Bureaucracy {
         let gov = self.get_gov_or_add(&link)?;
         // gov.get(link, only_head, c_clone)
         Ok(gov.request(link, only_head))
+    }
+
+    pub fn timekeep(&mut self) {
+        self.timekeeper.process_reports();
     }
 }

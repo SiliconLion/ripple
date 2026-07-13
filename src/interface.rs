@@ -175,7 +175,6 @@ impl Application {
                             continue;
                         }
                         Ok(resp) => {
-                            println!("\r{}", ai.link);
                             to_remove.push(i);
                             intermediaries2.push(ActionIntermediary2 {
                                 link: ai.link.clone(),
@@ -229,6 +228,8 @@ impl Application {
             let dot = self.data.represent();
             std::fs::write("ripples.dot", format!("{dot}"))
                 .expect("should be able to write a file");
+
+            self.bureou.timekeep();
 
             let pass_end_time = std::time::Instant::now();
 
