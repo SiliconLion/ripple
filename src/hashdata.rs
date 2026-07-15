@@ -92,6 +92,10 @@ impl Data for HashData {
             .collect() //Vec<Link>
     }
 
+    fn total_nodes(&self) -> usize {
+        self.all_nodes().len()
+    }
+
     fn domain_names(&self) -> Vec<String> {
         self.data.keys().map(|k| k.clone()).collect()
     }

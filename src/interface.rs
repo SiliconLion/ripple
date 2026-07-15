@@ -4,8 +4,8 @@ use crate::utils::*;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ActionType {
-    Explore,
     Validate,
+    Explore,
 }
 
 //ToDo: Turn this all into a state machine or something. Can be cleaned up
@@ -102,6 +102,7 @@ pub trait Data {
     fn remove(&mut self, link: Link);
     fn neighbors(&self, link: Link) -> Vec<Link>;
     fn all_nodes(&self) -> Vec<Link>;
+    fn total_nodes(&self) -> usize;
     fn domain_names(&self) -> Vec<String>;
     fn get_domain(&self, domain: String) -> Vec<Link>;
     fn update(&mut self, res: ActionResult);

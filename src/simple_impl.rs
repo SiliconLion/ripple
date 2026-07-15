@@ -1,3 +1,5 @@
+use crate::interface::CrawlState::Canidate;
+use crate::interface::CrawlState::Verified;
 use crate::interface::*;
 use crate::utils::*;
 use crate::Link;
@@ -70,6 +72,108 @@ impl ShuffleStrat {
             complete: false,
             rng: rand::rng(),
         }
+    }
+}
+
+pub struct DomainBreadthStrat {
+    pub max_at_once: usize,
+    pub max_nodes: usize,
+    terminate: bool,
+    complete: bool,
+    rng: ThreadRng,
+    last_idx_of_last_round: usize,
+}
+
+impl DomainBreadthStrat {
+    pub fn new(max_at_once: usize, max_nodes: usize) -> DomainBreadthStrat {
+        DomainBreadthStrat {
+            max_at_once,
+            max_nodes,
+            terminate: false,
+            complete: false,
+            rng: rand::rng(),
+            last_idx_of_last_round: 0,
+        }
+    }
+}
+
+impl Strategy for DomainBreadthStrat {
+    fn next_nodes(&mut self, data: &Box<dyn Data>) -> Vec<(ActionType, Link)> {
+        use crate::interface::ActionType::*;
+        println!("starting next nodes");
+
+        if data.total_nodes() >= self.max_nodes {
+            self.terminate = true
+        }
+
+        let domains = data.domain_names();
+        if domains.len() == 0 {
+            return Vec::new();
+        }
+
+        let mut start: usize = self.last_idx_of_last_round + 1;
+        if start >= domains.len() {
+            start = 0;
+        }
+
+        let mut end: usize = start + self.max_at_once;
+        if end >= domains.len() {
+            end = domains.len() - 1;
+        }
+
+        let mut actions: Vec<(ActionType, Link)> = Vec::with_capacity(domains.len());
+
+        if !self.terminate {
+            for domain in &domains[start..=end] {
+                let mut nodes = data.get_domain(domain.clone());
+                nodes.shuffle(&mut self.rng);
+
+                let mut i = 0;
+                while i < nodes.len() {
+                    let n = data.get(&nodes[i]);
+                    match n.state {
+                        Canidate => {
+                            actions.push((Validate, nodes[i].clone()));
+                            break;
+                        }
+                        Verified => {
+                            actions.push((Explore, nodes[i].clone()));
+                            break;
+                        }
+                        _ => {}
+                    }
+                    i += 1;
+                }
+            }
+            self.last_idx_of_last_round = end;
+        } else {
+            self.last_idx_of_last_round = end;
+
+            for node_name in data.all_nodes() {
+                let node = data.get(&node_name);
+                match node.state {
+                    Canidate => {
+                        actions.push((Validate, node_name));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if actions.len() == 0 {
+            self.complete = true;
+        }
+
+        println!("next nodes complete");
+        actions
+    }
+
+    fn end(&mut self, _data: &Box<dyn Data>) -> bool {
+        self.complete
+    }
+
+    fn max_poll_frequency(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(0)
     }
 }
 

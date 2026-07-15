@@ -8,7 +8,7 @@ pub mod utils;
 use crate::hashdata::HashData;
 use crate::interface::Application;
 use crate::link::Link;
-use crate::simple_impl::{HtmlChecker, HtmlSelector, ShuffleStrat};
+use crate::simple_impl::{DomainBreadthStrat, HtmlChecker, HtmlSelector, ShuffleStrat};
 use crate::utils::*;
 
 use std::env;
@@ -50,7 +50,8 @@ fn main() -> Result<(), AnyErr> {
     // let root_page = String::from("https://curlie.org");
 
     let mut app = Application::new(
-        Box::new(ShuffleStrat::new(40, target_node_count)), //ToDo: think more about how to pick max at once
+        // Box::new(ShuffleStrat::new(40, target_node_count)), //ToDo: think more about how to pick max at once
+        Box::new(DomainBreadthStrat::new(50, target_node_count)),
         Box::new(HtmlSelector::new()),
         Box::new(HtmlChecker::new()),
         Box::new(HashData::new()),
